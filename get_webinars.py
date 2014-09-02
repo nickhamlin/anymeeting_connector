@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 
 def get_PIIDs(argv):
+    """Open browser, load AnyMeeting page, and extract PIIDs from rendered js"""
     browser=webdriver.Firefox()
     browser.get('https://www.anymeeting.com/AccountManager/AnyMeeting.aspx?')
     element=browser.find_element_by_id('aspnetForm')
@@ -22,12 +23,9 @@ def get_PIIDs(argv):
     username.send_keys(argv[0])
     password.send_keys(argv[1])
     submit.click()
-
     PIIDs=[]
-    
-    #give everything time to load
+    #give everything time to load and make any manual adjustments to the page if you want
     time.sleep(60)
-
     for i in browser.find_elements_by_tag_name('a'):
         linktext=i.get_attribute('href')
         try:
@@ -36,17 +34,11 @@ def get_PIIDs(argv):
                 PIIDs.append(linktext[loc+5:loc+19])
         except AttributeError:
             continue
-
     browser.quit()
     return(PIIDs)
 
-#make this more robust
-def get_links():
-    for i in br.links():
-        if i.text=='View Meeting Detail':
-            details_links.append(i)
-
 def format_date(date):
+    """Make dates SQL friendly"""
     #pad month
     if date[1]=='/':
         date='0'+date
@@ -59,15 +51,15 @@ def format_date(date):
     return date
 
 def format_name(name):
+    """Process unicode and weird characters for csv friendliness"""
     parser=HTMLParser()
     unicode_name=parser.unescape(name)
-    #this isn't foolproof yet, but it's getting there
-    normalized_name=normalize('NFKD',name).encode('ASCII','ignore')
+    normalized_name=normalize('NFKD',unicode_name).encode('ASCII','ignore')
     normalized_name.replace(u'\xa0', u' ')
- #   output=unicode(str(unicode_name),'latin-1')
     return normalized_name
 
 def csv_dict_writer(path, fieldnames, data):
+    """Quick and dirty dump to csv of a list of dicts"""
     with open(path, "wb") as out_file:
         writer = csv.DictWriter(out_file, delimiter=',', fieldnames=fieldnames)
         writer.writeheader()
@@ -80,6 +72,7 @@ def csv_dict_writer(path, fieldnames, data):
 
 #only used for testing
 def csv_dict_reader(path):
+    """Reads data from csv into list of dicts, used for testing"""
     results=[]
     f=open(path,'rb')
     readobject=csv.DictReader(f)
@@ -89,24 +82,24 @@ def csv_dict_reader(path):
     return results
 
 def log_in_user(login):
+    """create a mechanize browser object with anymeeting logged in"""
     #create browser instance
     cj=mechanize.CookieJar()
     br=mechanize.Browser()
     br.set_cookiejar(cj)
     # Add headers to trick website into thinking this is a real browser
-    br.addheaders = [('User-agent', 'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1')]
+    br.addheaders = [('User-agent', 
+                      """Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) 
+                      Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1""")]
     # Browser options
     br.set_handle_equiv(True)
     br.set_handle_redirect(True)
     br.set_handle_referer(True)
     br.set_handle_robots(False)
-
     # Follows refresh 0 but not hangs on refresh > 0
     br.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(), max_time=1)
-
     # The site we will navigate into, handling its session
-    page=br.open('https://www.anymeeting.com/AccountManager/login.aspx')
-
+    br.open('https://www.anymeeting.com/AccountManager/login.aspx')
     print br.title()
     cj.clear_session_cookies()
     # Log in, then redirect to main page with Recording tab active
@@ -118,9 +111,8 @@ def log_in_user(login):
     return(br)
 
 def get_webinar_data(br,data):
-    br.open('https://www.anymeeting.com/AccountManager/AnyMeeting.aspx?at=1')
+    """Given a list of PIIDs and a logged-in browser object, extract all webinar data"""
     output=[]
-    details_links=[]
     #Process each collected link to extract various IDs        
     for PIID in data:        
         corrected_url='https://www.anymeeting.com/AccountManager/RegistrationDetails.aspx?PIID=%s&at=6'%PIID
@@ -153,10 +145,17 @@ def get_webinar_data(br,data):
     return(output)
 
 def get_views(br,data,names_to_exclude=['Presenter','Anonymous'],domain_to_exclude='@globalgiving.org'):
+    """
+    Given a logged-in browser and webinar data in a list of dicts, extract view data
+    
+    Other Keyword Arguments:
+    names_to_exclude -- a list of viewer names to skip when importing
+    domain_to_exclude -- the email domain used by presenters
+    """
     views=[]
     for i in data:
         #start with live views
-        url_for_live_views='https://www.anymeeting.com/AccountManager/Session/SessionAttendance.aspx?ip_e=%s&ip_presessid=%s'%(i['ip_e'],i['ip_presessid'])
+        url_for_live_views='''https://www.anymeeting.com/AccountManager/Session/SessionAttendance.aspx?ip_e=%s&ip_presessid=%s'''%(i['ip_e'],i['ip_presessid'])
         br.open(url_for_live_views)
         html=br.response().read()
         soup=BeautifulSoup(html)
@@ -173,17 +172,14 @@ def get_views(br,data,names_to_exclude=['Presenter','Anonymous'],domain_to_exclu
                 else:
                     name=name_location.rstrip()
                     location=""
-
-                #try:
-                name=format_name(name)
-                #except UnicodeEncodeError :
-#                    continue
-                    
+                name=format_name(name)                    
                 email=col[1].string
                 minutes_connected=col[2].string
                 row_link=row.findAll('a')[0]['href']
                 ip_a=row_link[row_link.index('ip_a=')+5:]
-                record={'piid':i['piid'],'name':name,'email':email,'minutes_connected':minutes_connected,'ip_a':ip_a,'location':location}
+                record={'piid':i['piid'],'name':name,'email':email,
+                        'minutes_connected':minutes_connected,
+                        'ip_a':ip_a,'location':location}
                 #ignore specified viewers
                 if re.search(domain_to_exclude,email.lower()) or name in names_to_exclude:
                     continue
@@ -192,7 +188,7 @@ def get_views(br,data,names_to_exclude=['Presenter','Anonymous'],domain_to_exclu
                     print record['ip_a']+' processed'
         #Now get recording views
         if i['psrid']:
-            url_for_recording_views='https://www.anymeeting.com/AccountManager/Recording/RecordingViewers.aspx?c_psrid=%s'%i['psrid']
+            url_for_recording_views='''https://www.anymeeting.com/AccountManager/Recording/RecordingViewers.aspx?c_psrid=%s'''%i['psrid']
             br.open(url_for_recording_views)
             html2=br.response().read()
             soup2=BeautifulSoup(html2)
@@ -206,7 +202,9 @@ def get_views(br,data,names_to_exclude=['Presenter','Anonymous'],domain_to_exclu
                     view_date=format_date(col[2].string)
                     view_date=dt.datetime.strptime(view_date,'%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%d %H:%M:%S')
                     minutes_connected=col[4].span.string
-                    record={'piid':i['piid'],'name':name,'email':email,'minutes_connected':minutes_connected,'view_date':view_date}
+                    record={'piid':i['piid'],'name':name,'email':email,
+                            'minutes_connected':minutes_connected,
+                            'view_date':view_date}
                     #ignore specified viewers
                     if re.search(domain_to_exclude,email.lower()) or name in names_to_exclude:
                         continue
@@ -222,8 +220,10 @@ if __name__=="__main__":
     browser=log_in_user(credentials)
     webinars=get_webinar_data(browser,PIID_list)
     webinar_views=get_views(browser,webinars)
-    webinar_fieldnames=['title','start_date','piid','psrid','ip_presessid','ip_e']
-    view_fieldnames=['piid','name','email','location','view_date','minutes_connected','ip_a']
+    webinar_fieldnames=['title','start_date','piid',
+                        'psrid','ip_presessid','ip_e']
+    view_fieldnames=['piid','name','email','location',
+                     'view_date','minutes_connected','ip_a']
     csv_dict_writer('webinars.csv',webinar_fieldnames, webinars)
     csv_dict_writer('views.csv',view_fieldnames, webinar_views)
     print 'success'
