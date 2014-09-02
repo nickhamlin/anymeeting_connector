@@ -3,16 +3,28 @@ anymeeting_connector
 Anymeeting is cheap/free, and, reporting-wise, you get what you pay for.  
 
 This is an automated connector that will export all your webinar records and corresponding
-views (both live and recorded) into a MySQL database (easily modified for csv export as well).
+views (both live and recorded) into convenient, easy-to-use CSV files.
 
-Data is separated into two tables (webinar and webinar_views).  Run get_webinars.py first to populate the webinar table,
-then run get_webinar_views.py to populate the webinar_views table.  You'll need to run both of them periodically on a cron
-to keep your records up to date.
+SEPT. 2014 UPDATE:
+Anymeeting has changed how their pages are rendered in JavaScript, which makes the old version of this obsolete.
+This new version is a single file which uses both Selenium and Mechanize to scrape the AnyMeeting site.
+Outputs remain the same: one file containing data about webinars and another with data about views.
+Views are linked to webinars via the PIID, which can be used as a foreign key should you want to put your results in a database.
 
-Currently, this connects to MySQL via a homemade connector (database3).  In the future it's easy to modify this to be more
-extensible, I just haven't gotten there yet.
+HOW TO:
+-Make sure you've got the modules listed below installed
+-Clone this repo somewhere
+-Make sure get_webinars.py is executable (chmod +x get_webinars.py)
+-Run get_webinars.py from the command line, with your anymeeting username and password as arguments. It should look like: (get_webinars.py example@email.com password).
+
 
 Dependencies include:
 -Mechanize
--BeautifulSoup
--Getpass (optional, if you don't want to hardcode passwords.  This is currently commented out)
+-BeautifulSoup 4
+-Selenium
+
+All of these can be installed via SetupTools (for example: easy_install mechanize)
+
+Why Selenium AND Mechanize?  We need a browser that can render JS properly (mechanize can't).  However, it would by really slow to scrape everything out of Selenium, so instead we switch to something headless as faster for most of the heavy duty work.
+
+Happy Scraping!
